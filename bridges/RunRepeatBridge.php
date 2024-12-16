@@ -65,13 +65,13 @@ class RunRepeatBridge extends WebDriverAbstract
 
     protected function setFilterToLatest()
     {
-        $this->getDriver()->wait()->until(WebDriverExpectedCondition::visibilityOfElementLocated(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "pull-right")]//button')));
-        $filterButton = $this->getDriver()->findElement(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "pull-right")]//button'));
+        $this->getDriver()->wait()->until(WebDriverExpectedCondition::visibilityOfElementLocated(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "list-sorting") and contains(@class, "hidden-xs")]//button')));
+        $filterButton = $this->getDriver()->findElement(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "list-sorting") and contains(@class, "hidden-xs")]//button'));
         $filterButton->click();
-        $this->getDriver()->wait()->until(WebDriverExpectedCondition::visibilityOfElementLocated(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "pull-right")]//ul')));
-        $newestButton = $this->getDriver()->findElement(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "pull-right")]//ul/li[@id="dropdown-select-option-newest"]'));
+        $this->getDriver()->wait()->until(WebDriverExpectedCondition::visibilityOfElementLocated(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "list-sorting") and contains(@class, "hidden-xs")]//ul')));
+        $newestButton = $this->getDriver()->findElement(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "list-sorting") and contains(@class, "hidden-xs")]//ul/li[@id="dropdown-select-option-newest"]'));
         $newestButton->click();
-        $this->getDriver()->wait()->until(WebDriverExpectedCondition::invisibilityOfElementLocated(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "pull-right")]//ul')));
+        $this->getDriver()->wait()->until(WebDriverExpectedCondition::invisibilityOfElementLocated(WebDriverBy::xpath('//div[contains(@class, "product-list-header")]//div[contains(@class, "list-sorting") and contains(@class, "hidden-xs")]//ul')));
         usleep(500000); // wait 0.5s for the page to reload
     }
 
