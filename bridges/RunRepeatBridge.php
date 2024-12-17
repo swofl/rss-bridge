@@ -79,7 +79,7 @@ class RunRepeatBridge extends WebDriverAbstract
     {
         $result = [];
 
-        $heading = $product->findElement(WebDriverBy::xpath('.//div[@class="product-info"]//div[contains(@class, "product-name")]/a'));
+        $heading = $product->findElement(WebDriverBy::xpath('.//div[contains(@class, "product-name")]/a'));
         $result['title'] = $heading->findElement(WebDriverBy::tagName('span'))->getText();
         $result['uri'] = self::URI . $heading->getAttribute('href');
         $result['uid'] = hash('sha256', $result['title']);
