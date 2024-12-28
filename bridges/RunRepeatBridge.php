@@ -1,7 +1,6 @@
 <?php
 
 use Facebook\WebDriver\Exception\InvalidSessionIdException;
-use Facebook\WebDriver\Exception\NoSuchElementException;
 use Facebook\WebDriver\Exception\WebDriverException;
 use Facebook\WebDriver\Exception\Internal\WebDriverCurlException;
 use Facebook\WebDriver\Remote\RemoteWebElement;
@@ -44,14 +43,13 @@ class RunRepeatBridge extends WebDriverAbstract
     ] ];
     const ARTICLE_CACHE_TTL = 60 * 60 * 24 * 7; // 1 week
 
-    protected function getOuterHtmlIfNoImg(RemoteWebElement $element)
+    protected function getOuterHtmlIfNoImg(simple_html_dom_node $element)
     {
-        try {
-            $element->findElement(WebDriverBy::tagName('img'));
-        } catch (NoSuchElementException $e) {
-            return $element->getDomProperty('outerHTML');
+        if (count($element->find('img')) === 0 || $element->tag === 'ul') {
+            return $element;
+        } else {
+            return '';
         }
-        return '';
     }
 
     protected function clickCookieBanner()
@@ -89,42 +87,39 @@ class RunRepeatBridge extends WebDriverAbstract
 
     protected function parseFullArticle($item)
     {
-        $this->getDriver()->get($item['uri']);
-        $this->getDriver()->wait()->until(WebDriverExpectedCondition::visibilityOfElementLocated(
-            WebDriverBy::xpath('//div[@class="content-area"]')
-        ));
+        $article = getSimpleHTMLDOMCached($item['uri']);
 
-        $articleInfo = $this->getDriver()->findElement(WebDriverBy::xpath('//div[@class="author-name"]'))->getText();
+        $articleInfo = $article->find('div.author-name', 0)->text();
         $articleInfoParts = explode(' on ', $articleInfo);
         $item['author'] = $articleInfoParts[0];
         $item['timestamp'] = strtotime($articleInfoParts[1] . ' 13:37');
 
-        $mainImage = $this->getDriver()->findElement(WebDriverBy::xpath('//div[@class="top-section-container"]//div[@class="main-image"]/img'));
-        $feedImage = '<img src="' . $mainImage->getAttribute('src') . '" alt="' . $mainImage->getAttribute('alt') . '">';
+        $mainImage = $article->find('div.top-section-container div.main-image>img', 0);
+        $feedImage = '<img src="' . $mainImage->src . '" alt="' . $mainImage->alt . '">';
 
-        $article = $this->getDriver()->findElement(WebDriverBy::xpath('//article[@class="shoe-review"]'));
-        $contentTopSection = $article->findElement(WebDriverBy::xpath('./div[@class="top-section-content"]'));
+        $articleContent = $article->find('article.shoe-review', 0);
+        $contentTopSection = $articleContent->find('div.top-section-content', 0);
         
         $content = '';
 
-        $content .= '<p>' . $contentTopSection->findElement(WebDriverBy::xpath('.//section[@id="product-intro"]/div'))->getText() . '</p>';
+        $content .= '<p>' . $contentTopSection->find('section#product-intro>div', 0)->innertext . '</p>';
 
         $content .= '<h2>Pros</h2>';
-        $content .= $contentTopSection->findElement(WebDriverBy::xpath('.//div[@id="the_good"]/ul'))->getDomProperty('outerHTML');
+        $content .= $contentTopSection->find('div#the_good>ul', 0)->outertext();
 
         $content .= '<h2>Cons</h2>';
-        $content .= $contentTopSection->findElement(WebDriverBy::xpath('.//div[@id="the_bad"]/ul'))->getDomProperty('outerHTML');
+        $content .= $contentTopSection->find('div#the_bad>ul', 0)->outertext();
 
-        $contentLab = $article->findElement(WebDriverBy::xpath('./div[@class="lab-content"]'));
+        $contentLab = $articleContent->find('div.lab-content', 0);
 
         $content .= '<h2>Who should buy</h2>';
-        $contentWhoShouldBuyElements = $contentLab->findElements(WebDriverBy::cssSelector('#who-should-buy .rr_section_content :is(p, ul)'));
+        $contentWhoShouldBuyElements = $contentLab->find('#who-should-buy .rr_section_content p, #who-should-buy .rr_section_content ul');
         foreach ($contentWhoShouldBuyElements as $element) {
             $content .= $this->getOuterHtmlIfNoImg($element);
         }
 
         $content .= '<h2>Who should NOT buy</h2>';
-        $contentWhoShouldNotBuyElements = $contentLab->findElements(WebDriverBy::cssSelector('#who-should-not-buy .rr_section_content :is(p, ul)'));
+        $contentWhoShouldNotBuyElements = $contentLab->find('#who-should-not-buy .rr_section_content p, #who-should-not-buy .rr_section_content ul');
         foreach ($contentWhoShouldNotBuyElements as $element) {
             $content .= $this->getOuterHtmlIfNoImg($element);
         }
