@@ -24,7 +24,7 @@ class CeskaTelevizeBridge extends BridgeAbstract
 
         $validUrl = '/^(https:\/\/www\.ceskatelevize\.cz\/porady\/\d+-[a-z0-9-]+\/)(bonus\/)?$/';
         if (!preg_match($validUrl, $url, $match)) {
-            returnServerError('Invalid url');
+            throwServerException('Invalid url');
         }
 
         $category = $match[4] ?? 'nove';
@@ -41,11 +41,15 @@ class CeskaTelevizeBridge extends BridgeAbstract
         foreach ($html->find('#episodeListSection a[data-testid=card]') as $element) {
             $itemContent = $element->find('p[class^=content-]', 0);
             $itemDate = $element->find('div[class^=playTime-] span, [data-testid=episode-item-broadcast] span', 0);
+
+            // Remove special characters and whitespace
+            $cleanDate = preg_replace('/[^0-9.]/', '', $itemDate->plaintext);
+
             $item = [
                 'title'     => $this->fixChars($element->find('h3', 0)->plaintext),
                 'uri'       => self::URI . $element->getAttribute('href'),
                 'content'   => '<img src="' . $element->find('img', 0)->getAttribute('srcset') . '" /><br />' . $this->fixChars($itemContent->plaintext),
-                'timestamp' => $this->getUploadTimeFromString($itemDate->plaintext),
+                'timestamp' => $this->getUploadTimeFromString($cleanDate),
             ];
 
             $this->items[] = $item;
@@ -58,8 +62,8 @@ class CeskaTelevizeBridge extends BridgeAbstract
             return strtotime('today');
         } elseif (strpos($string, 'včera') !== false) {
             return strtotime('yesterday');
-        } elseif (!preg_match('/(\d+).\s(\d+).(\s(\d+))?/', $string, $match)) {
-            returnServerError('Could not get date from Česká televize string');
+        } elseif (!preg_match('/(\d+).(\d+).((\d+))?/', $string, $match)) {
+            throwServerException('Could not get date from Česká televize string');
         }
 
         $date = sprintf('%04d-%02d-%02d', $match[3] ?? date('Y'), $match[2], $match[1]);

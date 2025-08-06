@@ -21,20 +21,15 @@
 ;enabled_bridges[] = ThePirateBay
 ;enabled_bridges[] = TikTokBridge
 ;enabled_bridges[] = Twitch
-;enabled_bridges[] = Vk
 ;enabled_bridges[] = XPathBridge
 ;enabled_bridges[] = Youtube
 ;enabled_bridges[] = YouTubeCommunityTabBridge
 enabled_bridges[] = *
 
-; Defines the timezone used by RSS-Bridge
-; Find a list of supported timezones at
-; https://www.php.net/manual/en/timezones.php
-; timezone = "UTC" (default)
 timezone = "UTC"
 
 ; Display a system message to users.
-message = ""
+;message = "Hello world"
 
 ; Whether to enable debug mode.
 enable_debug_mode = false
@@ -52,13 +47,16 @@ max_file_size = 10000000
 [http]
 
 ; Operation timeout in seconds
-timeout = 15
+timeout = 5
 
 ; Operation retry count in case of curl error
-retries = 2
+retries = 1
 
-; User agent
-useragent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0"
+; Curl user agent
+; This is already set by curl-impersonate, which comes included as default 
+; in RSS-Bridge docker container. Use only if you know what you're doing.
+; For reference, see https://github.com/lexiforest/curl-impersonate/tree/main/docs
+;useragent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0"
 
 ; Max http response size in MB
 max_filesize = 20
@@ -80,7 +78,7 @@ custom_timeout = false
 ; ""    = Disabled (default)
 email = ""
 
-; Advertise a contact Telegram url e.g. "https://t.me/elegantobjects"
+; Advertise a contact URL (can be any URL!) e.g. "https://t.me/elegantobjects"
 telegram = ""
 
 ; Show Donation information for bridges if available.

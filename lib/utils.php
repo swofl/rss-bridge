@@ -175,24 +175,28 @@ function parse_mime_type($url)
             'image' => 'image/*',
             'mp3' => 'audio/mpeg',
         ];
-        // '@' is used to mute open_basedir warning, see issue #818
-        if (@is_readable('/etc/mime.types')) {
-            $file = fopen('/etc/mime.types', 'r');
-            while (($line = fgets($file)) !== false) {
-                $line = trim(preg_replace('/#.*/', '', $line));
-                if (!$line) {
-                    continue;
+        // if-check to avoid excessive php errors about open_basedir restriction (#4502)
+        $open_basedir = ini_get('open_basedir');
+        if (! $open_basedir) {
+            // '@' is used to mute open_basedir warning, see issue #818
+            if (@is_readable('/etc/mime.types')) {
+                $file = fopen('/etc/mime.types', 'r');
+                while (($line = fgets($file)) !== false) {
+                    $line = trim(preg_replace('/#.*/', '', $line));
+                    if (!$line) {
+                        continue;
+                    }
+                    $parts = preg_split('/\s+/', $line);
+                    if (count($parts) == 1) {
+                        continue;
+                    }
+                    $type = array_shift($parts);
+                    foreach ($parts as $part) {
+                        $mime[$part] = $type;
+                    }
                 }
-                $parts = preg_split('/\s+/', $line);
-                if (count($parts) == 1) {
-                    continue;
-                }
-                $type = array_shift($parts);
-                foreach ($parts as $part) {
-                    $mime[$part] = $type;
-                }
+                fclose($file);
             }
-            fclose($file);
         }
     }
 
@@ -238,12 +242,33 @@ function create_random_string(int $bytes = 16): string
     return bin2hex(openssl_random_pseudo_bytes($bytes));
 }
 
-function returnClientError($message)
+function throwClientException(string $message = '')
 {
     throw new \Exception($message, 400);
 }
 
-function returnServerError($message)
+function throwServerException(string $message = '')
 {
     throw new \Exception($message, 500);
+}
+
+function throwRateLimitException(string $message = '')
+{
+    throw new RateLimitException($message);
+}
+
+/**
+ * @deprecated Use throwClientException() instead
+ */
+function returnClientError(string $message = '')
+{
+    throw new \Exception($message);
+}
+
+/**
+ * @deprecated Use throwServerException() instead
+ */
+function returnServerError(string $message = '')
+{
+    throw new \Exception($message);
 }

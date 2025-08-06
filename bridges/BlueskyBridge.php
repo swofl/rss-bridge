@@ -154,7 +154,7 @@ class BlueskyBridge extends BridgeAbstract
             //valid DID
             $did = $user_id;
         } else {
-            returnClientError('Invalid ATproto handle or DID provided.');
+            throwClientException('Invalid ATproto handle or DID provided.');
         }
 
         $filter = $this->getInput('feed_filter') ?: 'posts_and_author_threads';
@@ -180,7 +180,7 @@ class BlueskyBridge extends BridgeAbstract
 
             if (Debug::isEnabled()) {
                 $url = explode('/', $post['post']['uri']);
-                error_log('https://bsky.app/profile/' . $url[2] . '/post/' . $url[4]);
+                $this->logger->debug('https://bsky.app/profile/' . $url[2] . '/post/' . $url[4]);
             }
 
             $description = '';
@@ -255,6 +255,16 @@ class BlueskyBridge extends BridgeAbstract
                     $description .= '<a href="' . $uri_reconstructed . '">Quoted post detached.</a>';
                 } elseif (isset($quotedRecord['blocked']) && $quotedRecord['blocked']) { //blocked by quote author
                     $description .= 'Author of quoted post has blocked OP.';
+                } elseif (
+                    ($quotedRecord['$type'] ?? '') === 'app.bsky.feed.defs#generatorView' ||
+                    ($quotedRecord['$type'] ?? '') === 'app.bsky.graph.defs#listView'
+                ) {
+                    $description .= $this->getListFeedDescription($quotedRecord);
+                } elseif (
+                    ($quotedRecord['$type'] ?? '') === 'app.bsky.graph.starterpack' ||
+                    ($quotedRecord['$type'] ?? '') === 'app.bsky.graph.defs#starterPackViewBasic'
+                ) {
+                    $description .= $this->getStarterPackDescription($post['post']['embed']['record']);
                 } else {
                     $quotedAuthorDid = $quotedRecord['author']['did'];
                     $quotedDisplayName = $quotedRecord['author']['displayName'] ?? '';
@@ -320,147 +330,163 @@ class BlueskyBridge extends BridgeAbstract
             }
 
             //reply
-            if ($replyContext && isset($post['reply']) && !isset($post['reply']['parent']['notFound'])) {
+            if ($replyContext && isset($post['reply']) && isset($post['reply']['parent'])) {
                 $replyPost = $post['reply']['parent'];
-                $replyPostRecord = $replyPost['record'];
                 $description .= '<hr/>';
                 $description .= '<p>';
 
-                $replyPostAuthorDID = $replyPost['author']['did'];
-                $replyPostAuthorHandle = $replyPost['author']['handle'] !== 'handle.invalid' ? '<i>@' . $replyPost['author']['handle'] . '</i> ' : '';
-                $replyPostDisplayName = $replyPost['author']['displayName'] ?? '';
-                $replyPostDisplayName = e($replyPostDisplayName);
-                $replyPostUri = self::URI . '/profile/' . $this->fallbackAuthor($replyPost['author'], 'url') . '/post/' . explode('app.bsky.feed.post/', $replyPost['uri'])[1];
+                if (isset($replyPost['notFound']) && $replyPost['notFound']) { //deleted post
+                    $description .= 'Replied to post was deleted.';
+                } elseif (isset($replyPost['blocked']) && $replyPost['blocked']) { //blocked by quote author
+                    $description .= 'Author of replied to post has blocked OP.';
+                } else {
+                    $replyPostRecord = $replyPost['record'];
+                    $replyPostAuthorDID = $replyPost['author']['did'];
+                    $replyPostAuthorHandle = $replyPost['author']['handle'] !== 'handle.invalid' ? '<i>@' . $replyPost['author']['handle'] . '</i> ' : '';
+                    $replyPostDisplayName = $replyPost['author']['displayName'] ?? '';
+                    $replyPostDisplayName = e($replyPostDisplayName);
+                    $replyPostUri = self::URI . '/profile/' . $this->fallbackAuthor($replyPost['author'], 'url') . '/post/' . explode('app.bsky.feed.post/', $replyPost['uri'])[1];
 
-                // reply post
-                $description .= $this->getPostDescription(
-                    $replyPostDisplayName,
-                    $replyPostAuthorHandle,
-                    $replyPostUri,
-                    $replyPostRecord,
-                    'reply'
-                );
+                    // reply post
+                    $description .= $this->getPostDescription(
+                        $replyPostDisplayName,
+                        $replyPostAuthorHandle,
+                        $replyPostUri,
+                        $replyPostRecord,
+                        'reply'
+                    );
 
-                if (isset($replyPostRecord['embed']['$type'])) {
-                    //post link embed
-                    if ($replyPostRecord['embed']['$type'] === 'app.bsky.embed.external') {
-                        $description .= $this->parseExternal($replyPostRecord['embed']['external'], $replyPostAuthorDID);
-                    } elseif (
-                        $replyPostRecord['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
-                        $replyPostRecord['embed']['media']['$type'] === 'app.bsky.embed.external'
-                    ) {
-                        $description .= $this->parseExternal($replyPostRecord['embed']['media']['external'], $replyPostAuthorDID);
-                    }
-
-                    //post images
-                    if (
-                        $replyPostRecord['embed']['$type'] === 'app.bsky.embed.images' ||
-                        (
+                    if (isset($replyPostRecord['embed']['$type'])) {
+                        //post link embed
+                        if ($replyPostRecord['embed']['$type'] === 'app.bsky.embed.external') {
+                            $description .= $this->parseExternal($replyPostRecord['embed']['external'], $replyPostAuthorDID);
+                        } elseif (
                             $replyPostRecord['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
-                            $replyPostRecord['embed']['media']['$type'] === 'app.bsky.embed.images'
-                        )
-                    ) {
-                        $images = $replyPost['embed']['images'] ?? $replyPost['embed']['media']['images'];
-                        foreach ($images as $image) {
-                            $description .= $this->getPostImageDescription($image);
+                            $replyPostRecord['embed']['media']['$type'] === 'app.bsky.embed.external'
+                        ) {
+                            $description .= $this->parseExternal($replyPostRecord['embed']['media']['external'], $replyPostAuthorDID);
+                        }
+
+                        //post images
+                        if (
+                            $replyPostRecord['embed']['$type'] === 'app.bsky.embed.images' ||
+                            (
+                                $replyPostRecord['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
+                                $replyPostRecord['embed']['media']['$type'] === 'app.bsky.embed.images'
+                            )
+                        ) {
+                            $images = $replyPost['embed']['images'] ?? $replyPost['embed']['media']['images'];
+                            foreach ($images as $image) {
+                                $description .= $this->getPostImageDescription($image);
+                            }
+                        }
+
+                        //post video
+                        if (
+                            $replyPostRecord['embed']['$type'] === 'app.bsky.embed.video' ||
+                            (
+                                $replyPostRecord['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
+                                $replyPostRecord['embed']['media']['$type'] === 'app.bsky.embed.video'
+                            )
+                        ) {
+                            $description .= $this->getPostVideoDescription(
+                                $replyPostRecord['embed']['video'] ?? $replyPostRecord['embed']['media']['video'],
+                                $replyPostAuthorDID
+                            );
                         }
                     }
+                    $description .= '</p>';
 
-                    //post video
+                    //quote post
                     if (
-                        $replyPostRecord['embed']['$type'] === 'app.bsky.embed.video' ||
-                        (
-                            $replyPostRecord['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
-                            $replyPostRecord['embed']['media']['$type'] === 'app.bsky.embed.video'
-                        )
+                        isset($replyPostRecord['embed']) &&
+                        ($replyPostRecord['embed']['$type'] === 'app.bsky.embed.record' || $replyPostRecord['embed']['$type'] === 'app.bsky.embed.recordWithMedia') &&
+                        isset($replyPost['embed']['record'])
                     ) {
-                        $description .= $this->getPostVideoDescription(
-                            $replyPostRecord['embed']['video'] ?? $replyPostRecord['embed']['media']['video'],
-                            $replyPostAuthorDID
-                        );
-                    }
-                }
-                $description .= '</p>';
+                        $description .= '<p>';
+                        $replyQuotedRecord = $replyPost['embed']['record']['record'] ?? $replyPost['embed']['record'];
 
-                //quote post
-                if (
-                    isset($replyPostRecord['embed']) &&
-                    ($replyPostRecord['embed']['$type'] === 'app.bsky.embed.record' || $replyPostRecord['embed']['$type'] === 'app.bsky.embed.recordWithMedia') &&
-                    isset($replyPost['embed']['record'])
-                ) {
-                    $description .= '<p>';
-                    $replyQuotedRecord = $replyPost['embed']['record']['record'] ?? $replyPost['embed']['record'];
+                        if (isset($replyQuotedRecord['notFound']) && $replyQuotedRecord['notFound']) { //deleted post
+                            $description .= 'Quoted post deleted.';
+                        } elseif (isset($replyQuotedRecord['detached']) && $replyQuotedRecord['detached']) { //detached quote
+                            $uri_explode = explode('/', $replyQuotedRecord['uri']);
+                            $uri_reconstructed = self::URI . '/profile/' . $uri_explode[2] . '/post/' . $uri_explode[4];
+                            $description .= '<a href="' . $uri_reconstructed . '">Quoted post detached.</a>';
+                        } elseif (isset($replyQuotedRecord['blocked']) && $replyQuotedRecord['blocked']) { //blocked by quote author
+                            $description .= 'Author of quoted post has blocked OP.';
+                        } elseif (
+                            ($replyQuotedRecord['$type'] ?? '') === 'app.bsky.feed.defs#generatorView' ||
+                            ($replyQuotedRecord['$type'] ?? '') === 'app.bsky.graph.defs#listView'
+                        ) {
+                            $description .= $this->getListFeedDescription($replyQuotedRecord);
+                        } elseif (
+                            ($replyQuotedRecord['$type'] ?? '') === 'app.bsky.graph.starterpack' ||
+                            ($replyQuotedRecord['$type'] ?? '') === 'app.bsky.graph.defs#starterPackViewBasic'
+                        ) {
+                            $description .= $this->getStarterPackDescription($replyPost['embed']['record']);
+                        } else {
+                            $quotedAuthorDid = $replyQuotedRecord['author']['did'];
+                            $quotedDisplayName = $replyQuotedRecord['author']['displayName'] ?? '';
+                            $quotedDisplayName = e($quotedDisplayName);
+                            $quotedAuthorHandle = $replyQuotedRecord['author']['handle'] !== 'handle.invalid' ? '<i>@' . $replyQuotedRecord['author']['handle'] . '</i>' : '';
 
-                    if (isset($replyQuotedRecord['notFound']) && $replyQuotedRecord['notFound']) { //deleted post
-                        $description .= 'Quoted post deleted.';
-                    } elseif (isset($replyQuotedRecord['detached']) && $replyQuotedRecord['detached']) { //detached quote
-                        $uri_explode = explode('/', $replyQuotedRecord['uri']);
-                        $uri_reconstructed = self::URI . '/profile/' . $uri_explode[2] . '/post/' . $uri_explode[4];
-                        $description .= '<a href="' . $uri_reconstructed . '">Quoted post detached.</a>';
-                    } elseif (isset($replyQuotedRecord['blocked']) && $replyQuotedRecord['blocked']) { //blocked by quote author
-                        $description .= 'Author of quoted post has blocked OP.';
-                    } else {
-                        $quotedAuthorDid = $replyQuotedRecord['author']['did'];
-                        $quotedDisplayName = $replyQuotedRecord['author']['displayName'] ?? '';
-                        $quotedDisplayName = e($quotedDisplayName);
-                        $quotedAuthorHandle = $replyQuotedRecord['author']['handle'] !== 'handle.invalid' ? '<i>@' . $replyQuotedRecord['author']['handle'] . '</i>' : '';
+                            $parts = explode('/', $replyQuotedRecord['uri']);
+                            $quotedPostId = end($parts);
+                            $quotedPostUri = self::URI . '/profile/' . $this->fallbackAuthor($replyQuotedRecord['author'], 'url') . '/post/' . $quotedPostId;
 
-                        $parts = explode('/', $replyQuotedRecord['uri']);
-                        $quotedPostId = end($parts);
-                        $quotedPostUri = self::URI . '/profile/' . $this->fallbackAuthor($replyQuotedRecord['author'], 'url') . '/post/' . $quotedPostId;
+                            //quoted post - post
+                            $description .= $this->getPostDescription(
+                                $quotedDisplayName,
+                                $quotedAuthorHandle,
+                                $quotedPostUri,
+                                $replyQuotedRecord,
+                                'quote'
+                            );
 
-                        //quoted post - post
-                        $description .= $this->getPostDescription(
-                            $quotedDisplayName,
-                            $quotedAuthorHandle,
-                            $quotedPostUri,
-                            $replyQuotedRecord,
-                            'quote'
-                        );
+                            if (isset($replyQuotedRecord['value']['embed']['$type'])) {
+                                //quoted post - post link embed
+                                if ($replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.external') {
+                                    $description .= $this->parseExternal($replyQuotedRecord['value']['embed']['external'], $quotedAuthorDid);
+                                }
 
-                        if (isset($replyQuotedRecord['value']['embed']['$type'])) {
-                            //quoted post - post link embed
-                            if ($replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.external') {
-                                $description .= $this->parseExternal($replyQuotedRecord['value']['embed']['external'], $quotedAuthorDid);
-                            }
+                                //quoted post - post video
+                                if (
+                                    $replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.video' ||
+                                    (
+                                        $replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
+                                        $replyQuotedRecord['value']['embed']['media']['$type'] === 'app.bsky.embed.video'
+                                    )
+                                ) {
+                                    $description .= $this->getPostVideoDescription(
+                                        $replyQuotedRecord['value']['embed']['video'] ?? $replyQuotedRecord['value']['embed']['media']['video'],
+                                        $quotedAuthorDid
+                                    );
+                                }
 
-                            //quoted post - post video
-                            if (
-                                $replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.video' ||
-                                (
-                                    $replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
-                                    $replyQuotedRecord['value']['embed']['media']['$type'] === 'app.bsky.embed.video'
-                                )
-                            ) {
-                                $description .= $this->getPostVideoDescription(
-                                    $replyQuotedRecord['value']['embed']['video'] ?? $replyQuotedRecord['value']['embed']['media']['video'],
-                                    $quotedAuthorDid
-                                );
-                            }
-
-                            //quoted post - post images
-                            if (
-                                $replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.images' ||
-                                (
-                                    $replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
-                                    $replyQuotedRecord['value']['embed']['media']['$type'] === 'app.bsky.embed.images'
-                                )
-                            ) {
-                                foreach ($replyQuotedRecord['embeds'] as $embed) {
-                                    if (
-                                        $embed['$type'] === 'app.bsky.embed.images#view' ||
-                                        ($embed['$type'] === 'app.bsky.embed.recordWithMedia#view' && $embed['media']['$type'] === 'app.bsky.embed.images#view')
-                                    ) {
-                                        $images = $embed['images'] ?? $embed['media']['images'];
-                                        foreach ($images as $image) {
-                                            $description .= $this->getPostImageDescription($image);
+                                //quoted post - post images
+                                if (
+                                    $replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.images' ||
+                                    (
+                                        $replyQuotedRecord['value']['embed']['$type'] === 'app.bsky.embed.recordWithMedia' &&
+                                        $replyQuotedRecord['value']['embed']['media']['$type'] === 'app.bsky.embed.images'
+                                    )
+                                ) {
+                                    foreach ($replyQuotedRecord['embeds'] as $embed) {
+                                        if (
+                                            $embed['$type'] === 'app.bsky.embed.images#view' ||
+                                            ($embed['$type'] === 'app.bsky.embed.recordWithMedia#view' && $embed['media']['$type'] === 'app.bsky.embed.images#view')
+                                        ) {
+                                            $images = $embed['images'] ?? $embed['media']['images'];
+                                            foreach ($images as $image) {
+                                                $description .= $this->getPostImageDescription($image);
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                        $description .= '</p>';
                     }
-                    $description .= '</p>';
                 }
             }
 
@@ -476,7 +502,7 @@ class BlueskyBridge extends BridgeAbstract
         $videoMime = $video['mimeType'];
         $thumbnail = "poster=\"https://video.bsky.app/watch/$authorDID/$videoCID/thumbnail.jpg\"" ?? '';
         $videoURL = "https://bsky.social/xrpc/com.atproto.sync.getBlob?did=$authorDID&cid=$videoCID";
-        return "<figure><video loop $thumbnail controls src=\"$videoURL\" type=\"$videoMime\"/></figure>";
+        return "<figure><video loop $thumbnail preload=\"none\" controls src=\"$videoURL\" type=\"$videoMime\"/></figure>";
     }
 
     private function getPostImageDescription(array $image)
@@ -546,11 +572,19 @@ class BlueskyBridge extends BridgeAbstract
             }
             $title .= ', replying to ' . $replyAuthor;
         }
-        if (isset($post['post']['embed']) && isset($post['post']['embed']['record'])) {
+
+        if (
+            isset($post['post']['embed']) &&
+            isset($post['post']['embed']['record']) &&
+            //if not starter pack, feed or list
+            ($post['post']['embed']['record']['$type'] ?? '') !== 'app.bsky.feed.defs#generatorView' &&
+            ($post['post']['embed']['record']['$type'] ?? '') !== 'app.bsky.graph.defs#listView' &&
+            ($post['post']['embed']['record']['$type'] ?? '') !== 'app.bsky.graph.defs#starterPackViewBasic'
+        ) {
             if (isset($post['post']['embed']['record']['blocked'])) {
                 $quotedAuthor = 'blocked user';
             } elseif (isset($post['post']['embed']['record']['notFound'])) {
-                $quotedAuthor = 'deleted post';
+                $quotedAuthor = 'deleted psost';
             } elseif (isset($post['post']['embed']['record']['detached'])) {
                 $quotedAuthor = 'detached post';
             } else {
@@ -579,9 +613,64 @@ class BlueskyBridge extends BridgeAbstract
     {
         $uri = 'https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=' . urlencode($did) . '&filter=' . urlencode($filter) . '&limit=30';
         if (Debug::isEnabled()) {
-            error_log($uri);
+            $this->logger->debug($uri);
         }
         $response = json_decode(getContents($uri), true);
         return $response;
+    }
+
+    //Embed for generated feeds and lists
+    private function getListFeedDescription(array $record): string
+    {
+        $feedViewAvatar = isset($record['avatar']) ? '<img src="' . preg_replace('/\/img\/avatar\//', '/img/avatar_thumbnail/', $record['avatar']) . '">' : '';
+        $feedViewName = e($record['displayName'] ?? $record['name']);
+        $feedViewDescription = e($record['description'] ?? '');
+        $authorDisplayName = e($record['creator']['displayName']);
+        $authorHandle = e($record['creator']['handle']);
+        $likeCount = isset($record['likeCount']) ? '<br>Liked by ' . e($record['likeCount']) . ' users' : '';
+        preg_match('/\/([^\/]+)$/', $record['uri'], $matches);
+        if (($record['purpose'] ?? '') === 'app.bsky.graph.defs#modlist') {
+            $typeURL = '/lists/';
+            $typeDesc = 'moderation list';
+        } elseif (($record['purpose'] ?? '') === 'app.bsky.graph.defs#curatelist') {
+            $typeURL = '/lists/';
+            $typeDesc = 'list';
+        } else {
+            $typeURL = '/feed/';
+            $typeDesc = 'feed';
+        }
+        $uri = e('https://bsky.app/profile/' . $record['creator']['did'] . $typeURL . $matches[1]);
+
+        return <<<END
+<blockquote>
+<b><a href="{$uri}">{$feedViewName}</a></b><br/>
+Bluesky {$typeDesc} by <b>{$authorDisplayName}</b> <i>@{$authorHandle}</i>
+<figure>
+{$feedViewAvatar}
+<figcaption>{$feedViewDescription}{$likeCount}</figcaption>
+</figure>
+</blockquote>
+END;
+    }
+
+    private function getStarterPackDescription(array $record): string
+    {
+        if (!isset($record['record'])) {
+            return 'Failed to get starter pack information.';
+        }
+        $starterpackRecord = $record['record'];
+        $starterpackName = e($starterpackRecord['name']);
+        $starterpackDescription = e($starterpackRecord['description']);
+        $creatorDisplayName = e($record['creator']['displayName']);
+        $creatorHandle = e($record['creator']['handle']);
+        preg_match('/\/([^\/]+)$/', $starterpackRecord['list'], $matches);
+        $uri = e('https://bsky.app/starter-pack/' . $record['creator']['did'] . '/' . $matches[1]);
+        return <<<END
+<blockquote>
+<b><a href="{$uri}">{$starterpackName}</a></b><br/>
+Bluesky starter pack by <b>{$creatorDisplayName}</b> <i>@{$creatorHandle}</i><br/>
+{$starterpackDescription}
+</blockquote>
+END;
     }
 }

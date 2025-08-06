@@ -62,7 +62,8 @@ class PepperBridgeAbstract extends BridgeAbstract
             foreach ($list as $deal) {
                 // Get the JSON Data stored as vue
                 $jsonDealData = $this->getDealJsonData($deal);
-                $dealMeta = Json::decode($deal->find('div[class=threadGrid-headerMeta]', 0)->find('div[class=js-vue2]', 1)->getAttribute('data-vue2'));
+                // DEPRECATED : website does not show this info in the deal list anymore
+                // $dealMeta = Json::decode($deal->find('div[class=js-vue3]', 1)->getAttribute('data-vue3'));
 
                 $item = [];
                 $item['uri'] = $this->getDealURI($jsonDealData);
@@ -77,10 +78,13 @@ class PepperBridgeAbstract extends BridgeAbstract
                     . $this->getHTMLTitle($jsonDealData)
                     . $this->getPrice($jsonDealData)
                     . $this->getDiscount($jsonDealData)
-                    . $this->getShipsFrom($dealMeta)
+                    /*
+                     * DEPRECATED : the list does not show this info anymore
+                     * . $this->getShipsFrom($dealMeta)
+                     */
                     . $this->getShippingCost($jsonDealData)
                     . $this->getSource($jsonDealData)
-                    . $this->getDealLocation($dealMeta)
+                    . $this->getDealLocation($jsonDealData)
                     . $deal->find('div[class*=' . $selectorDescription . ']', 0)->innertext
                     . '</td><td>'
                     . $this->getTemperature($jsonDealData)
@@ -105,7 +109,7 @@ class PepperBridgeAbstract extends BridgeAbstract
 
         // Show an error message if we can't find the thread ID in the URL sent by the user
         if ($threadSearch !== 1) {
-            returnClientError($this->i8n('thread-error'));
+            throwClientException($this->i8n('thread-error'));
         }
         $threadID = $matches[1];
 
@@ -354,7 +358,7 @@ HEREDOC;
      */
     private function getDealJsonData($deal)
     {
-        $data = Json::decode($deal->find('div[class=js-vue2]', 0)->getAttribute('data-vue2'));
+        $data = Json::decode($deal->find('div[class=js-vue3]', 0)->getAttribute('data-vue3'));
         return $data;
     }
 
@@ -402,14 +406,9 @@ HEREDOC;
      * Get the Deal location if it exists
      * @return string String of the deal location
      */
-    private function getDealLocation($dealMeta)
+    private function getDealLocation($jsonDealData)
     {
-        $ribbons = $dealMeta['props']['metaRibbons'];
-        $isLocal = false;
-        foreach ($ribbons as $ribbon) {
-            $isLocal |= ($ribbon['type'] == 'local');
-        }
-        if ($isLocal) {
+        if ($jsonDealData['props']['thread']['isLocal']) {
             $content = '<div>' . $this->i8n('deal-type') . ' : ' . $this->i8n('localdeal') . '</div>';
         } else {
             $content = '';
@@ -424,17 +423,21 @@ HEREDOC;
     private function getImage($deal)
     {
         // Get thread Image JSON content
-        $content = Json::decode($deal->find('div[class*=threadGrid-image]', 0)->find('div[class=js-vue2]', 0)->getAttribute('data-vue2'));
-        return '<img src="' . $content['props']['threadImageUrl'] . '"/>';
+        $content = Json::decode($deal->find('div[class=js-vue3]', 0)->getAttribute('data-vue3'));
+        //return '<img src="' . $content['props']['threadImageUrl'] . '"/>';
+        return '<img src="' . $this->i8n('image-host') . $content['props']['thread']['mainImage']['path'] . '/'
+            . $content['props']['thread']['mainImage']['name'] . '/re/202x202/qt/70/'
+            . $content['props']['thread']['mainImage']['uid'] . '"/>';
     }
 
     /**
      * Get the originating country from a Deal if it exists
      * @return string String of the deal originating country
+     * DEPRECATED : the deal on the result list does not contain this info anymore
      */
     private function getShipsFrom($dealMeta)
     {
-        $metas = $dealMeta['props']['metaRibbons'];
+        $metas = $dealMeta['props']['metaRibbons'] ?? [];
         $shipsFrom = null;
         foreach ($metas as $meta) {
             if ($meta['type'] == 'dispatched-from') {
@@ -524,6 +527,7 @@ HEREDOC;
     {
         $group = $this->getInput('group');
         $order = $this->getInput('order');
+        $subgroups = $this->getInput('subgroups');
 
         // This permit to keep the existing Feed to work
         if ($order == $this->i8n('context-hot')) {
@@ -533,7 +537,7 @@ HEREDOC;
         }
 
         $url = $this->i8n('bridge-uri')
-            . $this->i8n('uri-group') . $group . '?sortBy=' . $sortBy;
+            . $this->i8n('uri-group') . $group . '?sortBy=' . $sortBy . '&groups=' . $subgroups;
         return $url;
     }
 

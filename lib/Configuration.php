@@ -7,7 +7,7 @@
  */
 final class Configuration
 {
-    private const VERSION = '2025-01-02';
+    private const VERSION = '2025-08-05';
 
     private static $config = [];
 

@@ -30,6 +30,7 @@
         "ext-simplexml": "*",
         "ext-dom": "*",
         "ext-json": "*",
+        "ext-filter": "*",
         "ext-zip": "*",
         "php-webdriver/webdriver": ">=1.15.1"
     },
